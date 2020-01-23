@@ -14,8 +14,7 @@ defmodule Soap.Request do
   def call(wsdl, operation, {soap_headers, params}, request_headers, opts) do
     url = get_url(wsdl)
     request_headers = Headers.build(wsdl, operation, request_headers)
-    body = Params.build_body(wsdl, operation, params, soap_headers)
-
+    body = Params.build_body(wsdl, operation, params, soap_headers, opts)
     HTTPoison.post(url, body, request_headers, opts)
   end
 

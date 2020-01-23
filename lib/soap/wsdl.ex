@@ -17,10 +17,10 @@ defmodule Soap.Wsdl do
     parse(wsdl, path, opts)
   end
 
+  # Tanya fork for Purolator: Passing headers in order to make Authorized request
   @spec parse_from_url(String.t()) :: {:ok, map()}
-  def parse_from_url(path, opts \\ []) do
-    request_opts = Keyword.merge([follow_redirect: true, max_redirect: 5], opts)
-    %HTTPoison.Response{body: wsdl} = HTTPoison.get!(path, [], request_opts)
+  def parse_from_url(path, headers \\ [], opts \\ []) do
+    %HTTPoison.Response{body: wsdl} = HTTPoison.get!(path, headers, follow_redirect: true, max_redirect: 5)
     parse(wsdl, path, opts)
   end
 
@@ -40,7 +40,6 @@ defmodule Soap.Wsdl do
       soap_version: soap_version(opts),
       messages: get_messages(wsdl, protocol_namespace)
     }
-
     {:ok, parsed_response}
   end
 

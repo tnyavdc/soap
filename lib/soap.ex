@@ -55,17 +55,17 @@ defmodule Soap do
 
   - `path`: Path for wsdl file.
   - `type`: Atom that represents the type of path for WSDL file. Can be `:file` or `url`. Default: `:file`.
-  - `opts`: HTTPoison options or `:soap_version`.
+  - `headers`: Tanya fork for Purolator: Custom request headers for url types so that we can make Authorized requests
 
   ## Examples
 
       iex> {:ok, wsdl} = Soap.init_model("https://git.io/vNCWd", :url)
       {:ok, %{...}}
   """
-  @spec init_model(String.t(), :file | :url, list()) :: {:ok, map()}
-  def init_model(path, type \\ :file, opts \\ [])
-  def init_model(path, :file, opts), do: Wsdl.parse_from_file(path, opts)
-  def init_model(path, :url, opts), do: Wsdl.parse_from_url(path, opts)
+  @spec init_model(String.t(), :file | :url, headers :: any()) :: {:ok, map()}
+  def init_model(path, type \\ :file, headers \\ [])
+  def init_model(path, :file, _headers), do: Wsdl.parse_from_file(path)
+  def init_model(path, :url, headers), do: Wsdl.parse_from_url(path, headers)
 
   @doc """
   Send a request to the SOAP server based on the passed WSDL file, action and parameters.
@@ -74,7 +74,7 @@ defmodule Soap do
 
   ## Parameters
 
-  - `wsdl`: Wsdl model from `Soap.init_model/2` function.
+  - `wsdl`: Wsdl model from `Soap.init_model/3` function.
   - `action`: Soap action to be called. Use `Soap.operations/1` to get a list of available actions
   - `params`: Parameters to build the body of a SOAP request.
   - `headers`: Custom request headers.
@@ -98,7 +98,7 @@ defmodule Soap do
 
   ## Parameters
 
-  - `wsdl`: Wsdl model from `Soap.init_model/2` function.
+  - `wsdl`: Wsdl model from `Soap.init_model/3` function.
 
   ## Examples
 

@@ -20,12 +20,16 @@ defmodule Soap.Request.Params do
   Returns xml-like string.
   """
 
+  # Tanya fork for Purolator: Passing headers in order to make an Authorized request
   @spec build_body(wsdl :: map(), operation :: String.t() | atom(), params :: map(), headers :: map()) :: String.t()
-  def build_body(wsdl, operation, params, headers) do
-    with {:ok, body} <- build_soap_body(wsdl, operation, params),
+  def build_body(wsdl, operation, params, headers, opts \\ []) do
+    complex_type_name = Keyword.get(opts, :complex_type_name) || operation
+    complex_type_prefix = Keyword.get(opts, :complex_type_prefix) || ""
+    with {:ok, body} <- build_soap_body(wsdl, operation, params, opts),
          {:ok, header} <- build_soap_header(wsdl, operation, headers) do
       [header, body]
-      |> add_envelope_tag_wrapper(wsdl, operation)
+      # Tanya form for Purolator: Passing complex_type_name and complex_type prefix since Purolator request body wrapper nodename != operation name
+      |> add_envelope_tag_wrapper(wsdl, complex_type_name, complex_type_prefix)
       |> document
       |> generate(format: :none)
       |> String.replace(["\n", "\t"], "")
@@ -107,7 +111,10 @@ defmodule Soap.Request.Params do
 
   defp validate_type(k, _v, type = "dateTime"), do: type_error_message(k, type)
 
-  defp build_soap_body(wsdl, operation, params) do
+  # Tanya fork for Purolator: Passing opts with complex_type_name and complex_type_prefix since Purolator request wrapper nodename != operation name
+  defp build_soap_body(wsdl, operation, params, opts \\ []) do
+    complex_type_name = Keyword.get(opts, :complex_type_name) || operation
+    complex_type_prefix = Keyword.get(opts, :complex_type_prefix) || ""
     case params |> construct_xml_request_body |> validate_params(wsdl, operation) do
       {:error, messages} ->
         {:error, messages}
@@ -115,7 +122,7 @@ defmodule Soap.Request.Params do
       validated_params ->
         body =
           validated_params
-          |> add_action_tag_wrapper(wsdl, operation)
+          |> add_action_tag_wrapper(wsdl, complex_type_name, complex_type_prefix)
           |> add_body_tag_wrapper
 
         {:ok, body}
@@ -123,6 +130,10 @@ defmodule Soap.Request.Params do
   end
 
   defp build_soap_header(wsdl, operation, headers) do
+    # Tanya fork for Purolator: Take namespace prefix from passed headers. Soap headers must be prefixed with custom prefix in order for Purolator to accept them, but the
+    header_key = headers |> Keyword.keys() |> hd()
+    prefix = header_key |> to_string() |> String.split(":") |> hd()
+    header_namespace_prefix = if prefix != header_key, do: "#{prefix}:", else: ""
     case headers |> construct_xml_request_header do
       {:error, messages} ->
         {:error, messages}
@@ -130,9 +141,8 @@ defmodule Soap.Request.Params do
       validated_params ->
         body =
           validated_params
-          |> add_header_part_tag_wrapper(wsdl, operation)
+          |> add_header_part_tag_wrapper(wsdl, operation, header_namespace_prefix)
           |> add_header_tag_wrapper
-
         {:ok, body}
     end
   end
@@ -184,28 +194,28 @@ defmodule Soap.Request.Params do
   @spec insert_tag_parameters(params :: list()) :: list()
   defp insert_tag_parameters(params) when is_list(params), do: params |> List.insert_at(1, nil)
 
-  @spec add_action_tag_wrapper(list(), map(), String.t()) :: list()
-  defp add_action_tag_wrapper(body, wsdl, operation) do
+  @spec add_action_tag_wrapper(list(), map(), String.t(), String.t()) :: list()
+  defp add_action_tag_wrapper(body, wsdl, complex_type_name, complex_type_prefix) do
     action_tag_attributes = handle_element_form_default(wsdl[:schema_attributes])
 
     action_tag =
-      wsdl
-      |> get_action_with_namespace(operation)
-      |> prepare_action_tag(operation)
+      wsdl[:complex_types]
+      |> get_action_with_namespace(complex_type_name, complex_type_prefix)
+      |> prepare_action_tag(complex_type_name)
 
     [element(action_tag, action_tag_attributes, body)]
   end
 
-  @spec add_header_part_tag_wrapper(list(), map(), String.t()) :: list()
-  defp add_header_part_tag_wrapper(body, wsdl, operation) do
+  @spec add_header_part_tag_wrapper(list(), map(), String.t(), String.t()) :: list()
+  defp add_header_part_tag_wrapper(body, wsdl, operation, namespace_prefix \\ "") do
     action_tag_attributes = handle_element_form_default(wsdl[:schema_attributes])
-
     case get_header_with_namespace(wsdl, operation) do
       nil ->
         nil
 
       action_tag ->
-        [element(action_tag, action_tag_attributes, body)]
+        # Tanya fork for Purolator. Header part name not prefixed with custom namespace in Purolator messages but must be prefixed
+        [element(namespace_prefix <> action_tag, action_tag_attributes, body)]
     end
   end
 
@@ -215,13 +225,14 @@ defmodule Soap.Request.Params do
   defp prepare_action_tag("", operation), do: operation
   defp prepare_action_tag(action_tag, _operation), do: action_tag
 
-  @spec get_action_with_namespace(wsdl :: map(), operation :: String.t()) :: String.t()
-  defp get_action_with_namespace(wsdl, operation) do
-    wsdl[:complex_types]
-    |> Enum.find(fn x -> x[:name] == operation end)
-    |> handle_action_extractor_result(wsdl, operation)
+  @spec get_action_with_namespace(complex_types :: list(), complex_type_name :: String.t(), complex_type_prefix :: String.t()) :: String.t()
+  # Tanya fork for Purolator. complex_types is an empty array for some requests..
+  defp get_action_with_namespace([], complex_type_name, complex_type_prefix), do: complex_type_prefix <> complex_type_name
+  defp get_action_with_namespace(complex_types, complex_type_name, _complex_type_prefix) do
+    complex_types
+    |> Enum.find(fn x -> x[:name] == complex_type_name end)
+    |> handle_action_extractor_result(complex_types, complex_type_name)
   end
-
   @spec get_header_with_namespace(wsdl :: map(), operation :: String.t()) :: String.t()
   defp get_header_with_namespace(wsdl, operation) do
     with %{input: %{header: %{message: message, part: part}}} <-
@@ -234,24 +245,27 @@ defmodule Soap.Request.Params do
   end
 
   defp get_message_part(wsdl, message, part) do
+    # Tanya fork for Purolator. message from Purolator :operations is prefixed with namespace but message name in wsdl :messages is not
+    message = message |> String.split(":") |> Enum.at(1)
     wsdl[:messages]
-    |> Enum.find(&("tns:#{&1[:name]}" == message))
+    |> Enum.find(&(&1[:name] == message))
     |> Map.get(:parts)
     |> Enum.find(&(&1[:name] == part))
   end
 
-  defp handle_action_extractor_result(nil, wsdl, operation) do
-    wsdl[:complex_types]
-    |> Enum.find(fn x -> Macro.camelize(x[:name]) == operation end)
+  defp handle_action_extractor_result(nil, complex_types, complex_type_name) do
+    name = Enum.find(complex_types, fn x -> Macro.camelize(x[:name]) == complex_type_name end)
     |> Map.get(:type)
+    |> String.split("Container") # Tanya fork for Purolator. Purolator complex_types suffixes type name with "Container" but this nodename is not accepted by Purolator in the request body.
+    |> hd()
   end
 
-  defp handle_action_extractor_result(result, _wsdl, _operation), do: Map.get(result, :type)
+  defp handle_action_extractor_result(result, _complex_types, _operation), do: result |> Map.get(:type) |> String.split("Container") |> hd()
 
-  @spec get_action_namespace(wsdl :: map(), operation :: String.t()) :: String.t()
-  defp get_action_namespace(wsdl, operation) do
-    wsdl
-    |> get_action_with_namespace(operation)
+  @spec get_action_namespace(wsdl :: map(), complex_type_name :: String.t(), complex_type_prefix :: String.t()) :: String.t()
+  defp get_action_namespace(wsdl, complex_type_name, complex_type_prefix) do
+    wsdl[:complex_types]
+    |> get_action_with_namespace(complex_type_name, complex_type_prefix)
     |> String.split(":")
     |> List.first()
   end
@@ -262,12 +276,12 @@ defmodule Soap.Request.Params do
   @spec add_header_tag_wrapper(list()) :: list()
   defp add_header_tag_wrapper(body), do: [element(:"#{env_namespace()}:Header", nil, body)]
 
-  @spec add_envelope_tag_wrapper(body :: any(), wsdl :: map(), operation :: String.t()) :: any()
-  defp add_envelope_tag_wrapper(body, wsdl, operation) do
+  @spec add_envelope_tag_wrapper(body :: any(), wsdl :: map(), complex_type_name :: String.t(), complex_type_prefix :: String.t()) :: any()
+  defp add_envelope_tag_wrapper(body, wsdl, complex_type_name, complex_type_prefix) do
     envelop_attributes =
       @schema_types
       |> Map.merge(build_soap_version_attribute(wsdl))
-      |> Map.merge(build_action_attribute(wsdl, operation))
+      |> Map.merge(build_action_attribute(wsdl, complex_type_name, complex_type_prefix))
       |> Map.merge(custom_namespaces())
 
     [element(:"#{env_namespace()}:Envelope", envelop_attributes, body)]
@@ -279,9 +293,9 @@ defmodule Soap.Request.Params do
     %{"xmlns:#{env_namespace()}" => @soap_version_namespaces[soap_version]}
   end
 
-  @spec build_action_attribute(map(), String.t()) :: map()
-  defp build_action_attribute(wsdl, operation) do
-    action_attribute_namespace = get_action_namespace(wsdl, operation)
+  @spec build_action_attribute(map(), String.t(), String.t()) :: map()
+  defp build_action_attribute(wsdl, complex_type_name, complex_type_prefix) do
+    action_attribute_namespace = get_action_namespace(wsdl, complex_type_name, complex_type_prefix)
     action_attribute_value = wsdl[:namespaces][action_attribute_namespace][:value]
     prepare_action_attribute(action_attribute_namespace, action_attribute_value)
   end
