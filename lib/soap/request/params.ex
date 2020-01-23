@@ -130,7 +130,7 @@ defmodule Soap.Request.Params do
   end
 
   defp build_soap_header(wsdl, operation, headers) do
-    # Tanya fork for Purolator: Take namespace prefix from passed headers. Soap headers must be prefixed with custom prefix in order for Purolator to accept them, but the
+    # Tanya fork for Purolator: Take namespace prefix from passed headers. Soap headers must be prefixed with custom prefix in order for Purolator to accept them.
     header_key = headers |> Keyword.keys() |> hd()
     prefix = header_key |> to_string() |> String.split(":") |> hd()
     header_namespace_prefix = if prefix != header_key, do: "#{prefix}:", else: ""
@@ -202,6 +202,13 @@ defmodule Soap.Request.Params do
       wsdl[:complex_types]
       |> get_action_with_namespace(complex_type_name, complex_type_prefix)
       |> prepare_action_tag(complex_type_name)
+
+    # Tanya fork for Purolator. Hack for enabling two namespaces (Puroaltor datatypes v2 and v2)
+    # This library must be initialized with custom namespaces. Purolator defintions however send the same namespaces for both v1 and v2.
+    # We swap this conflicting namespace with the one we passed for equest body wrapper (complex_type_prefix).
+    replace_with_namespace = complex_type_prefix |> String.split(":") |> hd
+    action_tag_namespace = action_tag |> String.split(":") |> hd
+    action_tag = String.replace(action_tag, action_tag_namespace, replace_with_namespace)
 
     [element(action_tag, action_tag_attributes, body)]
   end
